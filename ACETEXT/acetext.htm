@@ -1,0 +1,394 @@
+<!DOCTYPE HTML>
+<!-- AM1N -->
+<html>
+	<head>
+		<title id="title">AceText</title>
+		<style>
+			body
+			{
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				font-family: 'consolas';
+			}
+			#editor
+			{
+				position: absolute;
+				top: 0;
+				right: 0;
+				bottom: 0;
+				left: 0;
+			}
+			.ace_cursor
+			{
+				border-left-width: 1px;
+			}
+			.ace_scroller.ace_scroll-left
+			{
+				box-shadow: initial!important;
+			}
+			p
+			{
+				padding: 0;
+				margin: 0;
+				color: white;
+			}
+			#popupmsg
+			{
+				position: fixed;
+				z-index: 1;
+				display: flex;
+				flex-direction: column;
+				font-size: 12px;
+				width: 248px;
+				height: 38px;
+				opacity: 0;
+				justify-content: center;
+				align-items: center;
+				bottom: 44px;
+				border-radius: 8px;
+				background: rgba(0, 0, 0, 0.2);
+				transition-duration: 448ms;
+			}
+			#popupmsg_m
+			{
+			}
+		</style>
+	</head>
+	<body>
+		<div id="popupmsg">
+			<p id="popupmsg_m">Saved.</p>
+		</div>
+		<div id="editor"></div>
+		<script src="ace/ace.js" type="text/javascript"></script>
+		<script src="acetext.js" type="text/javascript"></script>
+		<script>
+			const {ipcRenderer} = require('electron'); // Process comm handle.
+			var filepath = '';
+			var editor = ace.edit('editor');
+			const fs = window.require('fs');
+			var disp = 12;
+			var readmode = 0;
+			var wrapmode = 0;
+			var content = '';
+			var validfile = 0;
+			const fname = document.getElementById('title');
+			var dialog1 = document.getElementById('popupmsg');
+			var editor = ace.edit('editor');
+			editor.setTheme('ace/theme/github');
+			editor.setShowFoldWidgets(false);
+			editor.setShowPrintMargin(false);
+			editor.session.setMode('ace/mode/c_cpp');
+			editor.setScrollSpeed(1);
+			editor.setOptions
+			({
+				fontFamily: 'consolas',
+				fontSize: '12pt',
+				tabSize: 4,
+				useSoftTabs: false,
+				indentedSoftWrap: false, wrapBehavioursEnabled: true, wrap: true,
+				scrollPastEnd: 1,
+				dragEnabled: false,
+				vScrollBarAlwaysVisible: true
+			});
+			editor.container.style.lineHeight = 1.2;
+			editor.renderer.updateFontSize();
+			editor.focus();
+		</script>
+		<script>
+			function popupDialog()
+			{
+				let animationInverval = null;
+				clearInterval(animationInverval);
+				popupmsg.style.opacity = 1;
+				animationInverval = setInterval(function(){popupmsg.style.opacity = 0;clearInterval(animationInverval);}, 448);
+			}
+			// Theme mode.
+			function setTheme(theme)
+			{
+				editor.setTheme('ace/theme/' + theme);
+			}
+			// IMPLEMENT: File mode.
+			function readMode(mode)
+			{
+				if(mode === 1)
+				{
+					editor.setReadOnly(true);
+				}
+				else
+				{
+					editor.setReadOnly(false);
+				}
+			}
+			// IMPLEMENT: Line wrapping mode.
+			function wrapMode(mode)
+			{
+				if(mode == 1)
+				{
+					editor.setOptions({wrapBehavioursEnabled: true, wrap: true});
+				}
+				else
+				{
+					editor.setOptions({wrapBehavioursEnabled: false, wrap: false});
+				}
+			}
+			// Combine selection into single line.
+			function joinToLine()
+			{
+				var altText = editor.getSelectedText().split('\n');
+				var n = altText.length;
+				var newText = '';
+				for(let a = 0; a < n; ++a)
+				{
+					newText += altText[a];
+				}
+				var range = editor.selection.getRange();
+				editor.session.replace(range, newText);
+			}
+			// File read, NODEJS framework.
+			function loadFile(filepath)
+			{
+				fs.readFile(filepath, 'utf-8', function(err, data)
+				{
+					if(err) throw err;
+					editor.setValue(data, 1);
+					content = data;
+					editor.navigateFileEnd();
+					editor.focus();
+				});
+			}
+			// File write, NODEJS framework.
+			function writeFile(filepath, data)
+			{
+				fs.writeFile(filepath, data, 'utf-8', function(err, data)
+				{
+					if(err) throw err;
+					popupDialog();
+				});
+			}
+			// CTRL + MouseWheelScroll zoom functionality.
+			window.addEventListener('wheel', function(e)
+			{
+				if(e.ctrlKey)
+				{
+					if(e.deltaY < 0)
+					{
+						if(disp < 44)
+						{
+							disp += 2;
+							editor.setOptions({fontSize: disp + 'pt'});
+							editor.renderer.updateFontSize();
+						}
+					}
+					else
+					{
+						if(disp > 8)
+						{
+							disp -= 2;
+							editor.setOptions({fontSize: disp + 'pt'});
+							editor.renderer.updateFontSize();
+						}
+					}
+				}
+			});
+			function writeAndFinalize(text)
+			{
+				if(!text.endsWith('\n'))
+				{
+					editor.session.insert({row: text.length, column: 0}, '\n');
+					text += '\n';
+				}
+				writeFile(filepath, text);
+				content = text;
+				popupDialog();
+			}
+			// CMD-line arg handling shenanigans.
+			ipcRenderer.invoke('getPath', 'a1').then((path) =>
+			{
+				if(path !== undefined)
+				{
+					if(fs.lstatSync(path).isFile())
+					{
+						filepath = path;
+						loadFile(path);
+						fname.innerHTML = filepath.split('\\').pop().split('/').pop();
+					}
+				}
+			});
+			// Implementing keyboard shortcuts.
+			window.addEventListener('keydown', function(e)
+			{
+			// CTRL key is currently held down.
+			if(e.ctrlKey)
+			{
+				let text = editor.getValue(); // Text in editor that perhaps wasn't written to file.
+				// Regular save.
+				if(e.key === 's')
+				{
+					// Determine if edits were made.
+					if(text !== content)
+					{
+						// Write to existing file.
+						if(filepath !== '')
+						{
+							writeAndFinalize(text);
+						}
+						// Prompt to select/ add a file to write to.
+						else
+						{
+							ipcRenderer.invoke('handle', 'writeNew').then((path) =>
+							{
+								if(path !== '')
+								{
+									filepath = path;
+									writeAndFinalize(text);
+									fname.innerHTML = filepath.split('\\').pop().split('/').pop();
+								}
+							});
+						}
+					}
+				}
+				// Reset zoom.
+				else if(e.key === '0')
+				{
+					disp = 12;
+					editor.setOptions({fontSize: '12pt'});
+					editor.renderer.updateFontSize();
+				}
+				// Open file dialog.
+				else if(e.key === 'o')
+				{
+					// There is either no file open, or a file whose text is not unsaved.
+					if(text === content)
+					{
+						ipcRenderer.invoke('handle', 'open1').then((path) =>
+						{
+							if(path !== '')
+							{
+								filepath = path;
+								loadFile(path);
+								fname.innerHTML = filepath.split('\\').pop().split('/').pop();
+							}
+						});
+					}
+					// Prompt user to proceed with opening new file at the cost of discarding edits on current one.
+					else
+					{
+						ipcRenderer.invoke('handle', 'open2').then((path) =>
+						{
+							if(path !== '')
+							{
+								filepath = path;
+								loadFile(path);
+								fname.innerHTML = filepath.split('\\').pop().split('/').pop();
+							}
+						});
+					}
+				}
+				// Always save as new file, which can be selected/ added from resulting dialog.
+				else if(e.key === '9')
+				{
+					ipcRenderer.invoke('handle', 'writeNew').then((path) =>
+					{
+						if(path !== '')
+						{
+							filepath = path;
+							writeAndFinalize(text);
+							fname.innerHTML = filepath.split('\\').pop().split('/').pop();
+						}
+					});
+				}
+				// Theme: Dark.
+				else if(e.key === '1')
+				{
+					setTheme('dracula');
+				}
+				// Theme: Light.
+				else if(e.key === '2')
+				{
+					setTheme('github');
+				}
+			}
+			// ALT key is currently held down.
+			else if(e.altKey)
+			{
+				editor.setScrollSpeed(4);
+				if(e.key == 'F4')
+				{
+					terminate();
+				}
+			}
+			});
+			// Change scroll speed to default when ALT key let go.
+			window.addEventListener('keyup', function(e)
+			{
+				if(!e.altKey)
+				{
+					editor.setScrollSpeed(1);
+				}
+			});
+			// Close event, check if file edits are written or not.
+			function terminate()
+			{
+				let text = editor.getValue();
+				if(content !== text)
+				{
+					ipcRenderer.invoke('handle', 0);
+				}
+				else
+				{
+					ipcRenderer.invoke('handle', 1);
+				}
+			}
+			// Handle comms from main.
+			ipcRenderer.on('main', function(event, commstring)
+			{
+				if(commstring === 'cmdterminate')
+				{
+					terminate();
+				}
+			});
+			// Drag drop handling.
+			document.addEventListener('dragover', (event) =>
+			{
+				event.preventDefault();
+				event.stopPropagation();
+			});
+			document.addEventListener('dragenter', (event) =>
+			{
+				// Item enters dropspace.
+			});
+			document.addEventListener('dragleave', (event) =>
+			{
+				// Item leaves dropspace.
+			});
+			document.addEventListener('drop', (event) =>
+			{
+				event.preventDefault();
+				event.stopPropagation();
+				let dragfilepath = event.dataTransfer.files[0].path;
+				if(fs.lstatSync(dragfilepath).isFile())
+				{
+					if(content !== editor.getValue())
+					{
+						ipcRenderer.invoke('handle', 'opendirect').then((perm) =>
+						{
+							if(perm == 1)
+							{
+								loadFile(dragfilepath);
+								filepath = dragfilepath;
+								fname.innerHTML = filepath.split('\\').pop().split('/').pop();
+							}
+						});
+					}
+					else
+					{
+						loadFile(dragfilepath);
+						filepath = dragfilepath;
+						fname.innerHTML = filepath.split('\\').pop().split('/').pop();
+					}
+				}
+			});
+		</script>
+	</body>
+</html>
